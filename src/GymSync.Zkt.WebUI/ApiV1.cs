@@ -29,6 +29,85 @@ public static class ApiV1
                 Ok(new { device = $"{p.Ip}:{p.Port}", connected = true }));
         });
 
+        // Check connection status for one or all configured devices
+        v1.MapPost("/status", async (HttpRequest req) =>
+        {
+            var b = await Body(req);
+            var ip = Str(b, "ip");
+
+            // If ip provided, check single device
+            if (ip is not null)
+            {
+                var port = Int(b, "port") ?? cfg.Device.Port;
+                var password = Int(b, "password") ?? cfg.Device.Password;
+                var timeout = Int(b, "timeout") ?? 5;
+                var machine = Int(b, "machineNumber") ?? cfg.Device.MachineNumber;
+
+                try
+                {
+                    using var client = new DeviceClient(ip, port, machine);
+                    client.Connect(password, timeout);
+                    var info = client.GetDeviceInfo();
+                    return Ok(new
+                    {
+                        device = $"{ip}:{port}",
+                        online = true,
+                        serial = info.Serial,
+                        product = info.Product,
+                        firmware = info.Firmware,
+                    });
+                }
+                catch (Exception e)
+                {
+                    return Ok(new
+                    {
+                        device = $"{ip}:{port}",
+                        online = false,
+                        serial = (string?)null,
+                        product = (string?)null,
+                        firmware = (string?)null,
+                        error = e.Message,
+                    });
+                }
+            }
+
+            // No ip — check ALL configured devices
+            var results = new List<object>();
+            foreach (var d in cfg.Devices)
+            {
+                try
+                {
+                    using var client = new DeviceClient(d.Ip, d.Port, d.MachineNumber > 0 ? d.MachineNumber : cfg.Device.MachineNumber);
+                    client.Connect(d.Password, d.Timeout > 0 ? d.Timeout : 5);
+                    var info = client.GetDeviceInfo();
+                    results.Add(new
+                    {
+                        name = d.Name,
+                        device = $"{d.Ip}:{d.Port}",
+                        online = true,
+                        serial = info.Serial,
+                        product = info.Product,
+                        firmware = info.Firmware,
+                    });
+                }
+                catch (Exception e)
+                {
+                    results.Add(new
+                    {
+                        name = d.Name,
+                        device = $"{d.Ip}:{d.Port}",
+                        online = false,
+                        serial = (string?)null,
+                        product = (string?)null,
+                        firmware = (string?)null,
+                        error = e.Message,
+                    });
+                }
+            }
+
+            return Ok(new { devices = results, total = results.Count, online = results.Count(r => ((dynamic)r).online) });
+        });
+
         v1.MapGet("/devices", () =>
             Ok(new
             {

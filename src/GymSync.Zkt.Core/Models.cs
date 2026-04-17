@@ -14,6 +14,20 @@ public sealed record TemplateBlob(
     string Sha256
 );
 
+public sealed record DeviceTimeInfo(
+    int Year, int Month, int Day,
+    int Hour, int Minute, int Second
+);
+
+public sealed record DeviceInfo(
+    string Serial, string Firmware, string Platform, string Vendor,
+    string Product, string SdkVersion, string Mac,
+    int UserCount, int UserCapacity,
+    int FingerprintCount, int FingerprintCapacity,
+    int FaceCount, int FaceCapacity,
+    int AttLogCount, int AttLogCapacity
+);
+
 public sealed class Manifest
 {
     public string DeviceIp { get; set; } = "";

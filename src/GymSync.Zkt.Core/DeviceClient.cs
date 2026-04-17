@@ -31,7 +31,6 @@ public sealed class DeviceClient : IDisposable
     {
         _sta.Invoke(() =>
         {
-            // Always start with a fresh CZKEM instance.
             if (_czkem is not null)
             {
                 try { _czkem.Disconnect(); } catch { }
@@ -120,9 +119,77 @@ public sealed class DeviceClient : IDisposable
         });
     }
 
+    public DeviceUser? GetUser(string enrollNumber)
+    {
+        return _sta.Invoke(() =>
+        {
+            Require();
+            string name = "", password = "";
+            int privilege = 0;
+            bool enabled = true;
+
+            if (!_czkem!.SSR_GetUserInfo(MachineNumber, enrollNumber, out name, out password, out privilege, out enabled))
+                return null;
+
+            return new DeviceUser(enrollNumber, name ?? "", privilege, enabled);
+        });
+    }
+
+    public void CreateUser(string enrollNumber, string name, int privilege = 0, string password = "", bool enabled = true)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            bool ok = _czkem!.SSR_SetUserInfo(MachineNumber, enrollNumber, name, password, privilege, enabled);
+            if (!ok) throw new IOException($"SSR_SetUserInfo failed for {enrollNumber}: {LastError()}");
+        });
+    }
+
+    public void DeleteUser(string enrollNumber)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            bool ok = _czkem!.SSR_DeleteEnrollData(MachineNumber, enrollNumber, 12);
+            if (!ok) throw new IOException($"SSR_DeleteEnrollData failed for {enrollNumber}: {LastError()}");
+        });
+    }
+
+    // ---------- Enrollment ----------
+
+    public void StartEnrollFingerprint(string enrollNumber, int fingerIndex)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            bool ok = _czkem!.StartEnrollEx(enrollNumber, fingerIndex, 1);
+            if (!ok) throw new IOException($"StartEnrollEx failed for {enrollNumber} finger={fingerIndex}: {LastError()}");
+        });
+    }
+
+    public void StartEnrollFace(string enrollNumber)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            if (!int.TryParse(enrollNumber, out var uid))
+                throw new ArgumentException($"enrollNumber must be numeric for face enrollment: {enrollNumber}");
+            bool ok = _czkem!.StartEnroll(uid, 50);
+            if (!ok) throw new IOException($"StartEnroll(face) failed for {enrollNumber}: {LastError()}");
+        });
+    }
+
+    public void CancelEnroll()
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            _czkem!.CancelOperation();
+        });
+    }
+
     // ---------- Fingerprints ----------
 
-    /// <summary>Get a fingerprint template (slots 0..9). Returns null if not enrolled.</summary>
     public byte[]? GetFingerTemplate(string enrollNumber, int fingerIndex)
     {
         return _sta.Invoke(() =>
@@ -141,7 +208,6 @@ public sealed class DeviceClient : IDisposable
         });
     }
 
-    /// <summary>Push a fingerprint template previously obtained from <see cref="GetFingerTemplate"/>.</summary>
     public void SetFingerTemplate(string enrollNumber, int fingerIndex, byte[] template, int flag = 1)
     {
         _sta.Invoke(() =>
@@ -155,7 +221,6 @@ public sealed class DeviceClient : IDisposable
 
     // ---------- Faces ----------
 
-    /// <summary>Get a face template (slot 50). Returns null if not enrolled.</summary>
     public byte[]? GetFaceTemplate(string enrollNumber, int faceIndex = 50)
     {
         return _sta.Invoke(() =>
@@ -172,7 +237,6 @@ public sealed class DeviceClient : IDisposable
         });
     }
 
-    /// <summary>Push a face template previously obtained from <see cref="GetFaceTemplate"/>.</summary>
     public void SetFaceTemplate(string enrollNumber, byte[] template, int faceIndex = 50)
     {
         _sta.Invoke(() =>
@@ -181,6 +245,91 @@ public sealed class DeviceClient : IDisposable
             string tmpData = System.Text.Encoding.UTF8.GetString(template);
             bool ok = _czkem!.SetUserFaceStr(MachineNumber, enrollNumber, faceIndex, tmpData, tmpData.Length);
             if (!ok) throw new IOException($"SetUserFaceStr failed for {enrollNumber} slot={faceIndex}: {LastError()}");
+        });
+    }
+
+    // ---------- Device ----------
+
+    public void PlayVoice(int index)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            _czkem!.PlayVoiceByIndex(index);
+        });
+    }
+
+    public void DoorLock()
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            _czkem!.EnableDevice(MachineNumber, false);
+            _disabled = true;
+        });
+    }
+
+    public void DoorUnlock(int seconds = 5)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            _czkem!.ACUnlock(MachineNumber, seconds);
+        });
+    }
+
+    public DeviceTimeInfo GetDeviceTime()
+    {
+        return _sta.Invoke(() =>
+        {
+            Require();
+            int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+            bool ok = _czkem!.GetDeviceTime(MachineNumber, ref y, ref mo, ref d, ref h, ref mi, ref s);
+            if (!ok) throw new IOException($"GetDeviceTime failed: {LastError()}");
+            return new DeviceTimeInfo(y, mo, d, h, mi, s);
+        });
+    }
+
+    public void SetDeviceTime(DateTime t)
+    {
+        _sta.Invoke(() =>
+        {
+            Require();
+            bool ok = _czkem!.SetDeviceTime2(MachineNumber, t.Year, t.Month, t.Day, t.Hour, t.Minute, t.Second);
+            if (!ok) throw new IOException($"SetDeviceTime failed: {LastError()}");
+        });
+    }
+
+    public DeviceInfo GetDeviceInfo()
+    {
+        return _sta.Invoke(() =>
+        {
+            Require();
+            string firmware = "", platform = "", vendor = "", sdkVer = "", mac = "";
+            _czkem!.GetSerialNumber(MachineNumber, out string serial);
+            _czkem.GetFirmwareVersion(MachineNumber, ref firmware);
+            _czkem.GetPlatform(MachineNumber, ref platform);
+            _czkem.GetVendor(ref vendor);
+            _czkem.GetProductCode(MachineNumber, out string product);
+            _czkem.GetSDKVersion(ref sdkVer);
+            _czkem.GetDeviceMAC(MachineNumber, ref mac);
+
+            int userCount = 0, fpCount = 0, faceCount = 0, attLogCount = 0;
+            int userCap = 0, fpCap = 0, faceCap = 0, attCap = 0;
+            _czkem.GetDeviceStatus(MachineNumber, 2, ref userCount);
+            _czkem.GetDeviceStatus(MachineNumber, 3, ref fpCount);
+            _czkem.GetDeviceStatus(MachineNumber, 6, ref attLogCount);
+            _czkem.GetDeviceStatus(MachineNumber, 7, ref fpCap);
+            _czkem.GetDeviceStatus(MachineNumber, 8, ref userCap);
+            _czkem.GetDeviceStatus(MachineNumber, 9, ref attCap);
+            try { _czkem.GetDeviceStatus(MachineNumber, 21, ref faceCount); } catch { }
+            try { _czkem.GetDeviceStatus(MachineNumber, 22, ref faceCap); } catch { }
+
+            return new DeviceInfo(
+                serial ?? "", firmware ?? "", platform ?? "", vendor ?? "",
+                product ?? "", sdkVer ?? "", mac ?? "",
+                userCount, userCap, fpCount, fpCap,
+                faceCount, faceCap, attLogCount, attCap);
         });
     }
 

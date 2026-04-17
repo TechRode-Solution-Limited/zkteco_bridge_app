@@ -55,6 +55,16 @@ app.MapGet("/api/config", () =>
         storagePath = cfg.Storage.Path,
     }, jsonOpts));
 
+// ------------- /api/connect ----------------
+app.MapPost("/api/connect", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+        Results.Json(new { ok = true, message = $"Connected to {p.Ip}:{p.Port}" }, jsonOpts));
+});
+
 // ------------- /api/users ------------------
 app.MapPost("/api/users", async (HttpRequest req) =>
 {
@@ -68,6 +78,7 @@ app.MapPost("/api/users", async (HttpRequest req) =>
         {
             ok = true,
             device = $"{p.Ip}:{p.Port}",
+            count = users.Count,
             users = users.Select(u => new
             {
                 enrollNumber = u.EnrollNumber,
@@ -79,127 +90,263 @@ app.MapPost("/api/users", async (HttpRequest req) =>
     });
 });
 
-// ------------- /api/download ---------------
-app.MapPost("/api/download", async (HttpRequest req) =>
-{
-    var body = await ReadBodyAsync(req);
-    var p = DeviceParams(body, cfg);
-    var enrollArg = GetStr(body, "enrollNumber");
-    var doAll = GetBool(body, "all");
-
-    if (!doAll && string.IsNullOrWhiteSpace(enrollArg))
-        return Err("Supply enrollNumber or set all=true", 400);
-
-    var store = new TemplateStore(p.StoragePath);
-    var summaries = new List<Manifest>();
-    var totals = new { users = 0, fingers = 0, faces = 0 };
-    int users = 0, fingers = 0, faces = 0;
-
-    return await WithDeviceAsync(p, deviceLock, client =>
-    {
-        client.Disable();
-
-        var targets = doAll
-            ? client.ListUsers().Select(u => (u.EnrollNumber, u.Name)).ToList()
-            : new List<(string, string)> { (enrollArg!, "") };
-
-        foreach (var (enroll, name) in targets)
-        {
-            if (string.IsNullOrWhiteSpace(enroll)) continue;
-
-            var manifest = new Manifest
-            {
-                DeviceIp = p.Ip,
-                DevicePort = p.Port,
-                EnrollNumber = enroll,
-                Name = name,
-                DownloadedAt = DateTime.UtcNow.ToString("o"),
-            };
-
-            foreach (var fid in DeviceClient.FingerSlots)
-            {
-                var tpl = client.GetFingerTemplate(enroll, fid);
-                if (tpl is null) continue;
-                var path = store.WriteFingerprint(p.Ip, enroll, fid, tpl);
-                manifest.Fingerprints.Add(new TemplateBlob(fid, Path.GetFileName(path), tpl.Length, TemplateStore.Sha256Hex(tpl)));
-                fingers++;
-            }
-
-            foreach (var faceid in DeviceClient.FaceSlots)
-            {
-                var tpl = client.GetFaceTemplate(enroll, faceid);
-                if (tpl is null) continue;
-                var path = store.WriteFace(p.Ip, enroll, faceid, tpl);
-                manifest.Faces.Add(new TemplateBlob(faceid, Path.GetFileName(path), tpl.Length, TemplateStore.Sha256Hex(tpl)));
-                faces++;
-            }
-
-            if (manifest.Fingerprints.Count > 0 || manifest.Faces.Count > 0)
-            {
-                store.WriteManifest(p.Ip, enroll, manifest);
-                users++;
-                summaries.Add(manifest);
-            }
-        }
-
-        return Results.Json(new
-        {
-            ok = true,
-            totals = new { users, fingers, faces },
-            manifests = summaries,
-        }, jsonOpts);
-    });
-});
-
-// ------------- /api/upload -----------------
-app.MapPost("/api/upload", async (HttpRequest req) =>
+// ------------- /api/user -------------------
+app.MapPost("/api/user", async (HttpRequest req) =>
 {
     var body = await ReadBodyAsync(req);
     var p = DeviceParams(body, cfg);
     var enroll = GetStr(body, "enrollNumber");
     if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
 
-    var sourceIp = GetStr(body, "sourceIp") ?? p.Ip;
-    var targetEnroll = GetStr(body, "targetEnrollNumber") ?? enroll;
-    var skipFingers = GetBool(body, "skipFingers");
-    var skipFaces = GetBool(body, "skipFaces");
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var user = client.GetUser(enroll);
+        if (user is null) return Err($"User {enroll} not found on device", 404);
+        return Results.Json(new
+        {
+            ok = true,
+            user = new
+            {
+                enrollNumber = user.EnrollNumber,
+                name = user.Name,
+                privilege = user.Privilege,
+                enabled = user.Enabled,
+            }
+        }, jsonOpts);
+    });
+});
 
-    var store = new TemplateStore(p.StoragePath);
-    Manifest manifest;
-    try { manifest = store.ReadManifest(sourceIp, enroll); }
-    catch (Exception e) { return Err(e.Message, 404); }
+// ------------- /api/user/create ------------
+app.MapPost("/api/user/create", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var name = GetStr(body, "name") ?? "";
+    var privilege = GetInt(body, "privilege") ?? 0;
+    var password = GetStr(body, "password") ?? "";
+
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
 
     return await WithDeviceAsync(p, deviceLock, client =>
     {
-        client.Disable();
+        client.CreateUser(enroll, name, privilege, password);
+        return Results.Json(new { ok = true, message = $"User {enroll} created" }, jsonOpts);
+    });
+});
 
-        var existing = client.ListUsers().FirstOrDefault(u => u.EnrollNumber == targetEnroll);
-        if (existing is null)
-            return Err($"Target enrollNumber {targetEnroll} not found on device. Create the user record on the device first.", 404);
+// ------------- /api/user/delete ------------
+app.MapPost("/api/user/delete", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
 
-        int uploadedFingers = 0, uploadedFaces = 0;
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.DeleteUser(enroll);
+        return Results.Json(new { ok = true, message = $"User {enroll} deleted" }, jsonOpts);
+    });
+});
 
-        if (!skipFingers)
+// ------------- /api/enroll/finger ----------
+app.MapPost("/api/enroll/finger", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var finger = GetInt(body, "fingerIndex") ?? 0;
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.StartEnrollFingerprint(enroll, finger);
+        return Results.Json(new { ok = true, message = $"Fingerprint enrollment started for {enroll} finger={finger}. Follow device prompts." }, jsonOpts);
+    });
+});
+
+// ------------- /api/enroll/face ------------
+app.MapPost("/api/enroll/face", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.StartEnrollFace(enroll);
+        return Results.Json(new { ok = true, message = $"Face enrollment started for {enroll}. Follow device prompts." }, jsonOpts);
+    });
+});
+
+// ------------- /api/template/finger --------
+app.MapPost("/api/template/finger", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var finger = GetInt(body, "fingerIndex") ?? 0;
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var tpl = client.GetFingerTemplate(enroll, finger);
+        if (tpl is null)
+            return Results.Json(new { ok = true, found = false, enrollNumber = enroll, fingerIndex = finger, template = (string?)null }, jsonOpts);
+
+        var b64 = Convert.ToBase64String(tpl);
+        return Results.Json(new { ok = true, found = true, enrollNumber = enroll, fingerIndex = finger, bytes = tpl.Length, template = b64 }, jsonOpts);
+    });
+});
+
+// ------------- /api/template/face ----------
+app.MapPost("/api/template/face", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var faceIndex = GetInt(body, "faceIndex") ?? 50;
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var tpl = client.GetFaceTemplate(enroll, faceIndex);
+        if (tpl is null)
+            return Results.Json(new { ok = true, found = false, enrollNumber = enroll, faceIndex, template = (string?)null }, jsonOpts);
+
+        var b64 = Convert.ToBase64String(tpl);
+        return Results.Json(new { ok = true, found = true, enrollNumber = enroll, faceIndex, bytes = tpl.Length, template = b64 }, jsonOpts);
+    });
+});
+
+// ------------- /api/template/finger/upload -
+app.MapPost("/api/template/finger/upload", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var finger = GetInt(body, "fingerIndex") ?? 0;
+    var template = GetStr(body, "template");
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+    if (string.IsNullOrWhiteSpace(template)) return Err("Supply template (base64)", 400);
+
+    byte[] tpl;
+    try { tpl = Convert.FromBase64String(template); }
+    catch { return Err("Invalid base64 template", 400); }
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.SetFingerTemplate(enroll, finger, tpl);
+        return Results.Json(new { ok = true, message = $"Fingerprint template uploaded for {enroll} finger={finger}" }, jsonOpts);
+    });
+});
+
+// ------------- /api/template/face/upload ---
+app.MapPost("/api/template/face/upload", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var faceIndex = GetInt(body, "faceIndex") ?? 50;
+    var template = GetStr(body, "template");
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+    if (string.IsNullOrWhiteSpace(template)) return Err("Supply template (base64)", 400);
+
+    byte[] tpl;
+    try { tpl = Convert.FromBase64String(template); }
+    catch { return Err("Invalid base64 template", 400); }
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.SetFaceTemplate(enroll, tpl, faceIndex);
+        return Results.Json(new { ok = true, message = $"Face template uploaded for {enroll} face={faceIndex}" }, jsonOpts);
+    });
+});
+
+// ------------- /api/device/voice -----------
+app.MapPost("/api/device/voice", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var index = GetInt(body, "index") ?? 0;
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.PlayVoice(index);
+        return Results.Json(new { ok = true, message = $"Voice {index} played" }, jsonOpts);
+    });
+});
+
+// ------------- /api/device/door/lock -------
+app.MapPost("/api/device/door/lock", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.DoorLock();
+        return Results.Json(new { ok = true, message = "Door locked" }, jsonOpts);
+    });
+});
+
+// ------------- /api/device/door/unlock -----
+app.MapPost("/api/device/door/unlock", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var seconds = GetInt(body, "seconds") ?? 5;
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.DoorUnlock(seconds);
+        return Results.Json(new { ok = true, message = $"Door unlocked for {seconds}s" }, jsonOpts);
+    });
+});
+
+// ------------- /api/device/time ------------
+app.MapPost("/api/device/time", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var t = client.GetDeviceTime();
+        return Results.Json(new
         {
-            foreach (var t in manifest.Fingerprints)
-            {
-                var tpl = store.ReadTemplate(sourceIp, enroll, t.File);
-                client.SetFingerTemplate(targetEnroll, t.Slot, tpl);
-                uploadedFingers++;
-            }
-        }
+            ok = true,
+            time = $"{t.Year:D4}-{t.Month:D2}-{t.Day:D2} {t.Hour:D2}:{t.Minute:D2}:{t.Second:D2}",
+            raw = t,
+        }, jsonOpts);
+    });
+});
 
-        if (!skipFaces)
-        {
-            foreach (var t in manifest.Faces)
-            {
-                var tpl = store.ReadTemplate(sourceIp, enroll, t.File);
-                client.SetFaceTemplate(targetEnroll, tpl, t.Slot);
-                uploadedFaces++;
-            }
-        }
+// ------------- /api/device/time/set --------
+app.MapPost("/api/device/time/set", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
 
-        return Results.Json(new { ok = true, uploadedFingers, uploadedFaces }, jsonOpts);
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        client.SetDeviceTime(DateTime.Now);
+        return Results.Json(new { ok = true, message = "Device time synced to host" }, jsonOpts);
+    });
+});
+
+// ------------- /api/device/info ------------
+app.MapPost("/api/device/info", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var info = client.GetDeviceInfo();
+        return Results.Json(new { ok = true, info }, jsonOpts);
     });
 });
 
@@ -242,9 +389,6 @@ static string? GetStr(Dictionary<string, JsonElement> m, string key) =>
     m.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() :
     m.TryGetValue(key, out var n) && n.ValueKind == JsonValueKind.Number ? n.GetRawText() : null;
 
-static bool GetBool(Dictionary<string, JsonElement> m, string key) =>
-    m.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.True;
-
 static int? GetInt(Dictionary<string, JsonElement> m, string key)
 {
     if (!m.TryGetValue(key, out var v)) return null;
@@ -275,7 +419,7 @@ static async Task<IResult> WithDeviceAsync(DeviceParams p, SemaphoreSlim gate, F
         catch (Exception e) { return Err(e.Message, 500); }
 
         try { return work(client); }
-        catch (Exception e) { return Err($"{e.GetType().Name}: {e.Message}\n{e.StackTrace}", 500); }
+        catch (Exception e) { return Err($"{e.GetType().Name}: {e.Message}", 500); }
     }
     finally { gate.Release(); }
 }

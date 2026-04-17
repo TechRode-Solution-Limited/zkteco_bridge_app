@@ -9,60 +9,204 @@
 <body>
   <header>
     <h1>ZKTeco Test UI <span class="badge">C# / zkemkeeper</span></h1>
-    <p class="muted">Device: <code id="device-addr">—</code></p>
+    <p class="muted">Device: <code id="device-addr">-</code> | Status: <span id="conn-status" class="status-dot offline">disconnected</span></p>
   </header>
 
+  <!-- Connection bar -->
+  <section class="conn-bar">
+    <div class="grid">
+      <label>IP <input id="cfg-ip" /></label>
+      <label>Port <input id="cfg-port" type="number" /></label>
+      <label>Password <input id="cfg-password" type="number" /></label>
+      <label>Timeout (s) <input id="cfg-timeout" type="number" /></label>
+      <label>Machine # <input id="cfg-machine" type="number" /></label>
+    </div>
+    <button data-action="connect">Connect</button>
+    <span id="conn-msg" class="muted"></span>
+  </section>
+
+  <!-- Tab navigation -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="users">Users</button>
+    <button class="tab" data-tab="enrollment">Enrollment</button>
+    <button class="tab" data-tab="templates">Templates</button>
+    <button class="tab" data-tab="device">Device</button>
+  </nav>
+
   <main>
-    <section class="card">
-      <h2>Device connection</h2>
-      <div class="grid">
-        <label>IP <input id="cfg-ip" /></label>
-        <label>Port <input id="cfg-port" type="number" /></label>
-        <label>Password <input id="cfg-password" type="number" /></label>
-        <label>Timeout (s) <input id="cfg-timeout" type="number" /></label>
-        <label>Machine number <input id="cfg-machine" type="number" /></label>
-      </div>
-      <p class="muted">Overrides the values in <code>config.json</code> for this browser session.</p>
-    </section>
+    <!-- ==================== USERS TAB ==================== -->
+    <div class="tab-pane active" id="tab-users">
+      <section class="card">
+        <h2>List all users</h2>
+        <button data-action="list-users">Fetch users</button>
+        <div class="output" id="out-list-users"></div>
+      </section>
 
-    <section class="card">
-      <h2>1. List users</h2>
-      <button data-action="list">Fetch users</button>
-      <div class="output" id="out-list"></div>
-    </section>
+      <section class="card">
+        <h2>Get user by ID</h2>
+        <div class="inline">
+          <label>Enroll # <input id="get-user-enroll" placeholder="e.g. 1001" /></label>
+          <button data-action="get-user">Get user</button>
+        </div>
+        <div class="output" id="out-get-user"></div>
+      </section>
 
-    <section class="card">
-      <h2>2. Download templates</h2>
-      <div class="inline">
-        <label>Enroll number <input id="dl-enroll" placeholder="e.g. 1001" /></label>
-        <label class="checkbox"><input id="dl-all" type="checkbox" /> Download all users</label>
-        <button data-action="download">Download</button>
-      </div>
-      <p class="muted">Saves fingerprint (slots 0–9) and face (slots 50–54) templates under <code>storage/templates/&lt;ip&gt;/&lt;enroll&gt;/</code>.</p>
-      <div class="output" id="out-download"></div>
-    </section>
+      <section class="card">
+        <h2>Create user</h2>
+        <div class="inline">
+          <label>Enroll # <input id="create-enroll" placeholder="e.g. 1001" /></label>
+          <label>Name <input id="create-name" placeholder="John Doe" /></label>
+          <label>Privilege <select id="create-privilege">
+            <option value="0">User (0)</option>
+            <option value="1">Enroller (1)</option>
+            <option value="2">Manager (2)</option>
+            <option value="3">Admin (3)</option>
+          </select></label>
+          <button data-action="create-user">Create</button>
+        </div>
+        <div class="output" id="out-create-user"></div>
+      </section>
 
-    <section class="card">
-      <h2>3. Upload templates</h2>
-      <div class="inline">
-        <label>Source enroll number <input id="up-enroll" placeholder="e.g. 1001" /></label>
-        <label>Source IP <input id="up-source-ip" placeholder="(defaults to device IP)" /></label>
-        <label>Target enroll number <input id="up-target-enroll" placeholder="(defaults to source)" /></label>
-      </div>
-      <div class="inline">
-        <label class="checkbox"><input id="up-skip-fingers" type="checkbox" /> Skip fingerprints</label>
-        <label class="checkbox"><input id="up-skip-faces" type="checkbox" /> Skip faces</label>
-        <button data-action="upload">Upload</button>
-      </div>
-      <p class="muted">The target user record must already exist on the device. Template upload does not create users.</p>
-      <div class="output" id="out-upload"></div>
-    </section>
+      <section class="card">
+        <h2>Delete user</h2>
+        <div class="inline">
+          <label>Enroll # <input id="delete-enroll" placeholder="e.g. 1001" /></label>
+          <button data-action="delete-user" class="btn-danger">Delete</button>
+        </div>
+        <div class="output" id="out-delete-user"></div>
+      </section>
+    </div>
 
-    <section class="card">
-      <h2>4. Local storage</h2>
-      <button data-action="storage">Refresh</button>
-      <div class="output" id="out-storage"></div>
-    </section>
+    <!-- ==================== ENROLLMENT TAB ==================== -->
+    <div class="tab-pane" id="tab-enrollment">
+      <section class="card">
+        <h2>Enroll fingerprint</h2>
+        <p class="muted">Starts fingerprint enrollment on the device. The user must place their finger on the sensor when prompted.</p>
+        <div class="inline">
+          <label>Enroll # <input id="enroll-fp-id" placeholder="e.g. 1001" /></label>
+          <label>Finger index <select id="enroll-fp-finger">
+            <option value="0">0 - Right thumb</option>
+            <option value="1">1 - Right index</option>
+            <option value="2">2 - Right middle</option>
+            <option value="3">3 - Right ring</option>
+            <option value="4">4 - Right little</option>
+            <option value="5">5 - Left thumb</option>
+            <option value="6">6 - Left index</option>
+            <option value="7">7 - Left middle</option>
+            <option value="8">8 - Left ring</option>
+            <option value="9">9 - Left little</option>
+          </select></label>
+          <button data-action="enroll-finger">Start enrollment</button>
+        </div>
+        <div class="output" id="out-enroll-finger"></div>
+      </section>
+
+      <section class="card">
+        <h2>Enroll face</h2>
+        <p class="muted">Starts face enrollment on the device. The user must look at the camera when prompted.</p>
+        <div class="inline">
+          <label>Enroll # <input id="enroll-face-id" placeholder="e.g. 1001" /></label>
+          <button data-action="enroll-face">Start enrollment</button>
+        </div>
+        <div class="output" id="out-enroll-face"></div>
+      </section>
+    </div>
+
+    <!-- ==================== TEMPLATES TAB ==================== -->
+    <div class="tab-pane" id="tab-templates">
+      <section class="card">
+        <h2>Get fingerprint template</h2>
+        <div class="inline">
+          <label>Enroll # <input id="tpl-fp-get-enroll" placeholder="e.g. 1001" /></label>
+          <label>Finger index <select id="tpl-fp-get-finger">
+            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+            <option value="9">9</option>
+          </select></label>
+          <button data-action="get-finger-tpl">Get template</button>
+        </div>
+        <div class="output" id="out-get-finger-tpl"></div>
+      </section>
+
+      <section class="card">
+        <h2>Get face template</h2>
+        <div class="inline">
+          <label>Enroll # <input id="tpl-face-get-enroll" placeholder="e.g. 1001" /></label>
+          <label>Face index <input id="tpl-face-get-index" type="number" value="50" /></label>
+          <button data-action="get-face-tpl">Get template</button>
+        </div>
+        <div class="output" id="out-get-face-tpl"></div>
+      </section>
+
+      <section class="card">
+        <h2>Upload fingerprint template</h2>
+        <div class="inline">
+          <label>Enroll # <input id="tpl-fp-up-enroll" placeholder="e.g. 1001" /></label>
+          <label>Finger index <select id="tpl-fp-up-finger">
+            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+            <option value="9">9</option>
+          </select></label>
+        </div>
+        <label>Template (base64) <textarea id="tpl-fp-up-data" rows="3" placeholder="Paste base64 template from Get fingerprint template"></textarea></label>
+        <div class="inline" style="margin-top:8px">
+          <button data-action="upload-finger-tpl">Upload</button>
+        </div>
+        <div class="output" id="out-upload-finger-tpl"></div>
+      </section>
+
+      <section class="card">
+        <h2>Upload face template</h2>
+        <div class="inline">
+          <label>Enroll # <input id="tpl-face-up-enroll" placeholder="e.g. 1001" /></label>
+          <label>Face index <input id="tpl-face-up-index" type="number" value="50" /></label>
+        </div>
+        <label>Template (base64) <textarea id="tpl-face-up-data" rows="3" placeholder="Paste base64 template from Get face template"></textarea></label>
+        <div class="inline" style="margin-top:8px">
+          <button data-action="upload-face-tpl">Upload</button>
+        </div>
+        <div class="output" id="out-upload-face-tpl"></div>
+      </section>
+    </div>
+
+    <!-- ==================== DEVICE TAB ==================== -->
+    <div class="tab-pane" id="tab-device">
+      <section class="card">
+        <h2>Device info</h2>
+        <button data-action="device-info">Get info</button>
+        <div class="output" id="out-device-info"></div>
+      </section>
+
+      <section class="card">
+        <h2>Device time</h2>
+        <div class="inline">
+          <button data-action="device-time">Get time</button>
+          <button data-action="device-time-sync">Sync to host clock</button>
+        </div>
+        <div class="output" id="out-device-time"></div>
+      </section>
+
+      <section class="card">
+        <h2>Voice test</h2>
+        <div class="inline">
+          <label>Voice index <input id="voice-index" type="number" value="0" min="0" /></label>
+          <button data-action="voice-test">Play</button>
+        </div>
+        <div class="output" id="out-voice-test"></div>
+      </section>
+
+      <section class="card">
+        <h2>Door control</h2>
+        <div class="inline">
+          <button data-action="door-lock" class="btn-danger">Lock</button>
+          <label>Unlock duration (s) <input id="door-seconds" type="number" value="5" min="1" /></label>
+          <button data-action="door-unlock">Unlock</button>
+        </div>
+        <div class="output" id="out-door"></div>
+      </section>
+    </div>
   </main>
 
   <script src="app.js"></script>

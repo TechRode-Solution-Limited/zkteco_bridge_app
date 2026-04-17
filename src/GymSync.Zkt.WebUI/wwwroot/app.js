@@ -116,6 +116,32 @@ const actions = {
     show("out-create-user", ok, ok ? body.message : (body.error || body));
   },
 
+  async "update-user"(btn) {
+    const enroll = $("update-enroll").value.trim();
+    const name = $("update-name").value.trim();
+    const privilege = parseInt($("update-privilege").value, 10);
+    if (!enroll) return show("out-update-user", false, "Enter enroll number");
+    show("out-update-user", true, "Updating...");
+    const { ok, body } = await callJson("/api/user/update", { ...deviceOverrides(), enrollNumber: enroll, name: name || undefined, privilege });
+    show("out-update-user", ok, ok ? body.message : (body.error || body));
+  },
+
+  async "enable-user"(btn) {
+    const enroll = $("toggle-enroll").value.trim();
+    if (!enroll) return show("out-toggle-user", false, "Enter enroll number");
+    show("out-toggle-user", true, "Enabling...");
+    const { ok, body } = await callJson("/api/user/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: true });
+    show("out-toggle-user", ok, ok ? body.message : (body.error || body));
+  },
+
+  async "disable-user"(btn) {
+    const enroll = $("toggle-enroll").value.trim();
+    if (!enroll) return show("out-toggle-user", false, "Enter enroll number");
+    show("out-toggle-user", true, "Disabling...");
+    const { ok, body } = await callJson("/api/user/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: false });
+    show("out-toggle-user", ok, ok ? body.message : (body.error || body));
+  },
+
   async "delete-user"(btn) {
     const enroll = $("delete-enroll").value.trim();
     if (!enroll) return show("out-delete-user", false, "Enter enroll number");

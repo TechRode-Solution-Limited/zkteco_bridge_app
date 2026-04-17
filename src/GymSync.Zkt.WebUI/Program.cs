@@ -135,6 +135,52 @@ app.MapPost("/api/user/create", async (HttpRequest req) =>
     });
 });
 
+// ------------- /api/user/update ------------
+app.MapPost("/api/user/update", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    var name = GetStr(body, "name");
+    var privilege = GetInt(body, "privilege");
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var existing = client.GetUser(enroll);
+        if (existing is null) return Err($"User {enroll} not found on device", 404);
+
+        client.CreateUser(
+            enroll,
+            name ?? existing.Name,
+            privilege ?? existing.Privilege,
+            "",
+            existing.Enabled);
+
+        return Results.Json(new { ok = true, message = $"User {enroll} updated" }, jsonOpts);
+    });
+});
+
+// ------------- /api/user/enable ------------
+app.MapPost("/api/user/enable", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var enroll = GetStr(body, "enrollNumber");
+    var enable = body.TryGetValue("enable", out var v) && v.ValueKind != JsonValueKind.False;
+    if (string.IsNullOrWhiteSpace(enroll)) return Err("Supply enrollNumber", 400);
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var existing = client.GetUser(enroll);
+        if (existing is null) return Err($"User {enroll} not found on device", 404);
+
+        client.CreateUser(enroll, existing.Name, existing.Privilege, "", enable);
+        return Results.Json(new { ok = true, message = $"User {enroll} {(enable ? "enabled" : "disabled")}" }, jsonOpts);
+    });
+});
+
 // ------------- /api/user/delete ------------
 app.MapPost("/api/user/delete", async (HttpRequest req) =>
 {

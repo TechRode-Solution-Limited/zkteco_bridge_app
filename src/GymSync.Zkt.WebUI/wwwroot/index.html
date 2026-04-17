@@ -68,6 +68,32 @@
       </section>
 
       <section class="card">
+        <h2>Update user</h2>
+        <div class="inline">
+          <label>Enroll # <input id="update-enroll" placeholder="e.g. 1001" /></label>
+          <label>Name <input id="update-name" placeholder="New name" /></label>
+          <label>Privilege <select id="update-privilege">
+            <option value="0">User (0)</option>
+            <option value="1">Enroller (1)</option>
+            <option value="2">Manager (2)</option>
+            <option value="3">Admin (3)</option>
+          </select></label>
+          <button data-action="update-user">Update</button>
+        </div>
+        <div class="output" id="out-update-user"></div>
+      </section>
+
+      <section class="card">
+        <h2>Enable / Disable user</h2>
+        <div class="inline">
+          <label>Enroll # <input id="toggle-enroll" placeholder="e.g. 1001" /></label>
+          <button data-action="enable-user">Enable</button>
+          <button data-action="disable-user" class="btn-danger">Disable</button>
+        </div>
+        <div class="output" id="out-toggle-user"></div>
+      </section>
+
+      <section class="card">
         <h2>Delete user</h2>
         <div class="inline">
           <label>Enroll # <input id="delete-enroll" placeholder="e.g. 1001" /></label>

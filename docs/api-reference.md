@@ -74,6 +74,86 @@ GET /api/v1/devices
 }
 ```
 
+### 1.3 Device connection status
+
+Check whether one or all configured devices are online. Returns device info for online devices and error messages for offline ones. Never returns an HTTP error — offline devices are reported in the response body with `online: false`.
+
+```
+POST /api/v1/status
+```
+
+**Request — check a single device:**
+```json
+{
+  "ip": "10.121.0.206",
+  "port": 4370
+}
+```
+
+**Response (200):**
+```json
+{
+  "ok": true,
+  "data": {
+    "device": "10.121.0.206:4370",
+    "online": true,
+    "serial": "ABCD1234567890",
+    "product": "iFace800",
+    "firmware": "Ver 6.60 Oct 29 2019"
+  }
+}
+```
+
+**Response (200) — device offline:**
+```json
+{
+  "ok": true,
+  "data": {
+    "device": "10.121.0.206:4370",
+    "online": false,
+    "serial": null,
+    "product": null,
+    "firmware": null,
+    "error": "Cannot connect to ZKTeco device at 10.121.0.206:4370 (SDK error=-201; check IP, port, and comm password)."
+  }
+}
+```
+
+**Request — check ALL configured devices (empty body or no `ip` field):**
+```json
+{}
+```
+
+**Response (200):**
+```json
+{
+  "ok": true,
+  "data": {
+    "total": 2,
+    "online": 1,
+    "devices": [
+      {
+        "name": "entrance",
+        "device": "10.121.0.206:4370",
+        "online": true,
+        "serial": "ABCD1234567890",
+        "product": "iFace800",
+        "firmware": "Ver 6.60 Oct 29 2019"
+      },
+      {
+        "name": "exit",
+        "device": "10.121.0.207:4370",
+        "online": false,
+        "serial": null,
+        "product": null,
+        "firmware": null,
+        "error": "Cannot connect to ZKTeco device at 10.121.0.207:4370 (SDK error=-201; check IP, port, and comm password)."
+      }
+    ]
+  }
+}
+```
+
 ---
 
 ## 2. Users

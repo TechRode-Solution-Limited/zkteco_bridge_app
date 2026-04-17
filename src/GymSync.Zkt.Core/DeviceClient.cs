@@ -376,6 +376,84 @@ public sealed class DeviceClient : IDisposable
         catch { return $"{y:D4}-{mo:D2}-{d:D2} {h:D2}:{mi:D2}:{s:D2}"; }
     }
 
+    /// <summary>Get all fingerprint and face templates for a user in one call.</summary>
+    public UserTemplates GetAllTemplates(string enrollNumber)
+    {
+        return _sta.Invoke(() =>
+        {
+            Require();
+            var fingers = new List<FingerTemplateData>();
+            var faces = new List<FaceTemplateData>();
+
+            for (int i = 0; i < 10; i++)
+            {
+                string tmpData = "";
+                int tmpLength = 0, flag = 0;
+                if (_czkem!.GetUserTmpExStr(MachineNumber, enrollNumber, i, out flag, out tmpData, out tmpLength)
+                    && !string.IsNullOrEmpty(tmpData) && tmpLength > 0)
+                {
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(tmpData);
+                    fingers.Add(new FingerTemplateData(i, Convert.ToBase64String(bytes), bytes.Length, flag));
+                }
+            }
+
+            for (int i = 50; i < 55; i++)
+            {
+                string tmpData = "";
+                int tmpLength = 0;
+                if (_czkem!.GetUserFaceStr(MachineNumber, enrollNumber, i, ref tmpData, ref tmpLength)
+                    && !string.IsNullOrEmpty(tmpData) && tmpLength > 0)
+                {
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(tmpData);
+                    faces.Add(new FaceTemplateData(i, Convert.ToBase64String(bytes), bytes.Length));
+                }
+            }
+
+            return new UserTemplates(enrollNumber, fingers, faces);
+        });
+    }
+
+    /// <summary>Upload all fingerprint and face templates for a user in one call.</summary>
+    public UploadResult UploadAllTemplates(string enrollNumber, UserTemplates templates)
+    {
+        return _sta.Invoke(() =>
+        {
+            Require();
+            int uploadedFingers = 0, uploadedFaces = 0;
+            var errors = new List<string>();
+
+            foreach (var f in templates.Fingerprints)
+            {
+                try
+                {
+                    var tpl = Convert.FromBase64String(f.Template);
+                    string tmpData = System.Text.Encoding.UTF8.GetString(tpl);
+                    if (_czkem!.SetUserTmpExStr(MachineNumber, enrollNumber, f.Index, f.Flag, tmpData))
+                        uploadedFingers++;
+                    else
+                        errors.Add($"finger[{f.Index}]: SDK error {LastError()}");
+                }
+                catch (Exception ex) { errors.Add($"finger[{f.Index}]: {ex.Message}"); }
+            }
+
+            foreach (var f in templates.Faces)
+            {
+                try
+                {
+                    var tpl = Convert.FromBase64String(f.Template);
+                    string tmpData = System.Text.Encoding.UTF8.GetString(tpl);
+                    if (_czkem!.SetUserFaceStr(MachineNumber, enrollNumber, f.Index, tmpData, tmpData.Length))
+                        uploadedFaces++;
+                    else
+                        errors.Add($"face[{f.Index}]: SDK error {LastError()}");
+                }
+                catch (Exception ex) { errors.Add($"face[{f.Index}]: {ex.Message}"); }
+            }
+
+            return new UploadResult(uploadedFingers, uploadedFaces, errors);
+        });
+    }
+
     // ---------- Delete templates ----------
 
     public void DeleteFingerTemplate(string enrollNumber, int fingerIndex)

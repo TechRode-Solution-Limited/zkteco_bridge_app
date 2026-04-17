@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using GymSync.Zkt.Core;
+using GymSync.Zkt.WebUI;
 
 [assembly: SupportedOSPlatform("windows")]
 
@@ -46,6 +47,10 @@ var jsonOpts = new JsonSerializerOptions
     WriteIndented = false,
 };
 
+// ==================== V1 API (for Elixir app) ====================
+app.MapV1Routes(cfg, deviceLock);
+
+// ==================== Test UI API ====================
 // ------------- /api/config -----------------
 app.MapGet("/api/config", () =>
     Results.Json(new

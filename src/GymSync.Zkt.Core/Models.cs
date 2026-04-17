@@ -7,6 +7,31 @@ public sealed record DeviceUser(
     bool Enabled
 );
 
+public sealed record FingerTemplateData(
+    int Index,
+    string Template,
+    int Bytes,
+    int Flag
+);
+
+public sealed record FaceTemplateData(
+    int Index,
+    string Template,
+    int Bytes
+);
+
+public sealed record UserTemplates(
+    string EnrollNumber,
+    List<FingerTemplateData> Fingerprints,
+    List<FaceTemplateData> Faces
+);
+
+public sealed record UploadResult(
+    int UploadedFingers,
+    int UploadedFaces,
+    List<string> Errors
+);
+
 public sealed record TemplateBlob(
     int Slot,
     string File,

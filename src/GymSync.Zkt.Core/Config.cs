@@ -23,9 +23,20 @@ public sealed class WebConfig
     public int Port { get; set; } = 5000;
 }
 
+public sealed class NamedDevice
+{
+    public string Name { get; set; } = "";
+    public string Ip { get; set; } = "";
+    public int Port { get; set; } = 4370;
+    public int Password { get; set; } = 0;
+    public int Timeout { get; set; } = 10;
+    public int MachineNumber { get; set; } = 1;
+}
+
 public sealed class AppConfig
 {
     public DeviceConfig Device { get; set; } = new();
+    public List<NamedDevice> Devices { get; set; } = new();
     public StorageConfig Storage { get; set; } = new();
     public WebConfig Web { get; set; } = new();
 }

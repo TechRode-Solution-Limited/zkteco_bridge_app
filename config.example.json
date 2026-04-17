@@ -1,0 +1,16 @@
+{
+  "device": {
+    "ip": "192.168.1.201",
+    "port": 4370,
+    "password": 0,
+    "timeout": 10,
+    "machineNumber": 1
+  },
+  "storage": {
+    "path": "storage/templates"
+  },
+  "web": {
+    "host": "127.0.0.1",
+    "port": 5000
+  }
+}

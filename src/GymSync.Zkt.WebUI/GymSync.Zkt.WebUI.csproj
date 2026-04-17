@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>GymSync.Zkt.WebUI</RootNamespace>
+    <AssemblyName>GymSync.Zkt.WebUI</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GymSync.Zkt.Core\GymSync.Zkt.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZKTeco Test UI (C#)</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header>
+    <h1>ZKTeco Test UI <span class="badge">C# / zkemkeeper</span></h1>
+    <p class="muted">Device: <code id="device-addr">—</code></p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Device connection</h2>
+      <div class="grid">
+        <label>IP <input id="cfg-ip" /></label>
+        <label>Port <input id="cfg-port" type="number" /></label>
+        <label>Password <input id="cfg-password" type="number" /></label>
+        <label>Timeout (s) <input id="cfg-timeout" type="number" /></label>
+        <label>Machine number <input id="cfg-machine" type="number" /></label>
+      </div>
+      <p class="muted">Overrides the values in <code>config.json</code> for this browser session.</p>
+    </section>
+
+    <section class="card">
+      <h2>1. List users</h2>
+      <button data-action="list">Fetch users</button>
+      <div class="output" id="out-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>2. Download templates</h2>
+      <div class="inline">
+        <label>Enroll number <input id="dl-enroll" placeholder="e.g. 1001" /></label>
+        <label class="checkbox"><input id="dl-all" type="checkbox" /> Download all users</label>
+        <button data-action="download">Download</button>
+      </div>
+      <p class="muted">Saves fingerprint (slots 0–9) and face (slots 50–54) templates under <code>storage/templates/&lt;ip&gt;/&lt;enroll&gt;/</code>.</p>
+      <div class="output" id="out-download"></div>
+    </section>
+
+    <section class="card">
+      <h2>3. Upload templates</h2>
+      <div class="inline">
+        <label>Source enroll number <input id="up-enroll" placeholder="e.g. 1001" /></label>
+        <label>Source IP <input id="up-source-ip" placeholder="(defaults to device IP)" /></label>
+        <label>Target enroll number <input id="up-target-enroll" placeholder="(defaults to source)" /></label>
+      </div>
+      <div class="inline">
+        <label class="checkbox"><input id="up-skip-fingers" type="checkbox" /> Skip fingerprints</label>
+        <label class="checkbox"><input id="up-skip-faces" type="checkbox" /> Skip faces</label>
+        <button data-action="upload">Upload</button>
+      </div>
+      <p class="muted">The target user record must already exist on the device. Template upload does not create users.</p>
+      <div class="output" id="out-upload"></div>
+    </section>
+
+    <section class="card">
+      <h2>4. Local storage</h2>
+      <button data-action="storage">Refresh</button>
+      <div class="output" id="out-storage"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

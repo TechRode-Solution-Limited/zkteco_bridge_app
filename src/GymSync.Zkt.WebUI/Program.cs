@@ -657,7 +657,7 @@ static async Task<Dictionary<string, JsonElement>> ReadBodyAsync(HttpRequest req
             foreach (var prop in root.EnumerateObject()) map[prop.Name] = prop.Value.Clone();
         return map;
     }
-    catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException) { return new(); }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException) { return new(); }
     catch (System.Text.Json.JsonException) { return new(); }
     catch (System.IO.IOException) { return new(); }
 }

@@ -80,6 +80,17 @@ Every request body accepts optional `ip` / `port` / `password` / `timeout` / `ma
 
 There is **no** SSE / WebSocket / webhook push for attendance scans. `POST /api/v1/attendance/new` returns logs since the last read; Reception polls on a timer (~30s — see [`docs/elixir-integration.md`](docs/elixir-integration.md)). For gym attendance latency, this is fine. If push is ever needed, hook `OnAttTransactionEx` from `zkemkeeper` and proxy out via SSE — but keep the polling endpoint as the primary API.
 
+### "since last poll" watermark
+
+`ReadNewGLogData` and `ReadTimeGLogData` are unreliable across ZKTeco firmware — both regularly return `true` with zero rows even when logs exist. They depend on per-connection state that doesn't survive the Bridge's connect-per-request model.
+
+The Bridge instead pulls the full buffer via `ReadGeneralLogData` and filters in-process:
+
+- `/attendance/new` reads the watermark from `storage/last_seen.json` (keyed by `ip:port`), returns logs with `timestamp > watermark`, then bumps the watermark to the max timestamp returned. First poll after install returns the entire device buffer — Reception is the system of record and is expected to dedupe.
+- `/attendance/range` filters by `[startDate, endDate]` against the same full read.
+
+Both are implemented via [`DeviceClient.ReadAttLogsSince`](src/GymSync.Zkt.Core/DeviceClient.cs) / `ReadAttLogsByDateRange`. The watermark file is owned by [`LastSeenStore`](src/GymSync.Zkt.Core/LastSeenStore.cs) and survives service restarts. Delete `storage/last_seen.json` to force a full re-read on next poll.
+
 ## Configuration
 
 `config.json` (full reference in [`docs/api-reference.md`](docs/api-reference.md) §config):
@@ -135,8 +146,27 @@ Full table in [`docs/sdk-setup.md`](docs/sdk-setup.md). Most common:
 | `STA thread error` | Direct COM call from MTA — route through `StaExecutor` |
 | `Device busy / hangs` | Another client connected (Reception's direct-TCP path? another Bridge?) — close the other consumer |
 | Service crashes on startup | Usually missing `Interop.zkemkeeper.dll` next to the exe; the assembly resolver has a fallback but the file should be at `C:\GymSync\app\` |
+| `SetUserFaceStr ... -103` | Face algorithm mismatch between source and target device, OR the SDK `tmpLength` wasn't preserved end-to-end. Templates from a ZKFace 5.0 device won't load on a 7.0 / Visible Light device — re-enroll on target. See "Face templates" below |
+| `DelUserFace ... -2001` | Method not exposed by this firmware. `DeviceClient.DeleteFaceTemplate` already falls back to `SSR_DeleteEnrollData(slot=50..54)` automatically |
+| `StartEnrollEx(face) ... err=0` | User doesn't exist on the device yet. `DeviceClient.StartEnrollFace` auto-creates a stub user, then tries slot 50 → falls back to slot 10 for older face firmware |
 
 This project uses the **pre-generated** `Interop.zkemkeeper.dll` (strong-typed `new CZKEM()`), not late-bound `Type.GetTypeFromProgID`. ProgIDs vary by SDK version (`zkemkeeper.CZKEM` vs `zkemkeeper.ZKEM`); the interop assembly works regardless.
+
+## Face templates
+
+Face templates are the most fragile part of this SDK. Two cross-cutting rules:
+
+**1. The SDK's `tmpLength` must round-trip on uploads.** `GetUserFaceStr` returns *both* a base64-ish string `tmpData` AND a separate `tmpLength` (the device's native template size, not the string length). `SetUserFaceStr` requires that *same* `tmpLength` back — passing the string char count or UTF-8 byte count instead can produce `-103`. The Bridge preserves this end-to-end:
+
+- `GET /api/v1/templates/face/get` returns `{ template: "<base64>", bytes: <tmpLength> }`
+- `POST /api/v1/templates/face/upload` accepts an optional `bytes` field — pass back what you got from `/get`. If omitted, the Bridge falls back to `decoded_tpl.Length`, which only works if source and target devices agree on size encoding (often they don't).
+- `/templates/all` and `/sync/user*` already round-trip `bytes` correctly via `FaceTemplateData.Bytes`.
+
+**2. Face templates are not portable across face-algorithm versions.** ZKTeco devices ship with at least three incompatible face algorithms (ZKFace 5.0, 7.0, Visible Light). A template captured on one cannot be uploaded to another — you'll get `-103` no matter what you do at the API layer. Before reporting an upload bug, hit `POST /api/v1/device/info` on both source and target and compare `Platform` + `Firmware`. If they differ, the answer is "re-enroll on the target," not "fix the Bridge."
+
+`DeviceClient.SetFaceTemplate` already does the safety dance (auto-create user if missing → `EnableDevice(false)` → upload → `RefreshData` → `EnableDevice(true)`) and retries with both length conventions before giving up — so a `-103` that escapes that path is almost certainly an algorithm mismatch.
+
+Enroll numbers for face are alphanumeric (uses `StartEnrollEx`, not the legacy numeric `StartEnroll`).
 
 ## Storage layout (template cache)
 

@@ -41,6 +41,9 @@ app.UseStaticFiles();
 // Device access must be serialized — the device only talks to one client at a time.
 var deviceLock = new SemaphoreSlim(1, 1);
 
+// Persistent watermark for /attendance/new — see LastSeenStore docs.
+var watermarks = new LastSeenStore(Path.Combine(root, "storage", "last_seen.json"));
+
 var jsonOpts = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -48,7 +51,7 @@ var jsonOpts = new JsonSerializerOptions
 };
 
 // ==================== V1 API (for Elixir app) ====================
-app.MapV1Routes(cfg, deviceLock);
+app.MapV1Routes(cfg, deviceLock, watermarks);
 
 // ==================== Test UI API ====================
 // ------------- /api/config -----------------
@@ -338,8 +341,31 @@ app.MapPost("/api/attendance/new", async (HttpRequest req) =>
 
     return await WithDeviceAsync(p, deviceLock, client =>
     {
-        var logs = client.ReadNewAttLogs();
+        var key = $"{p.Ip}:{p.Port}";
+        var since = watermarks.Get(key);
+        var logs = client.ReadAttLogsSince(since);
+        if (logs.Count > 0)
+        {
+            var maxTs = logs.Max(l => l.Timestamp)!;
+            if (since is null || string.CompareOrdinal(maxTs, since) > 0) watermarks.Set(key, maxTs);
+        }
         return Results.Json(new { ok = true, count = logs.Count, logs }, jsonOpts);
+    });
+});
+
+// ------------- /api/attendance/today --------
+app.MapPost("/api/attendance/today", async (HttpRequest req) =>
+{
+    var body = await ReadBodyAsync(req);
+    var p = DeviceParams(body, cfg);
+    var today = DateTime.Now.ToString("yyyy-MM-dd");
+    var startDate = $"{today} 00:00:00";
+    var endDate = $"{today} 23:59:59";
+
+    return await WithDeviceAsync(p, deviceLock, client =>
+    {
+        var logs = client.ReadAttLogsByDateRange(startDate, endDate);
+        return Results.Json(new { ok = true, date = today, count = logs.Count, logs }, jsonOpts);
     });
 });
 

@@ -255,6 +255,13 @@
       </section>
 
       <section class="card">
+        <h2>Today's attendance logs</h2>
+        <p class="muted">All logs from 00:00:00 to 23:59:59 of the current day (server time).</p>
+        <button data-action="att-today">Fetch today's logs</button>
+        <div class="output" id="out-att-today"></div>
+      </section>
+
+      <section class="card">
         <h2>Logs by date range</h2>
         <div class="inline">
           <label>Start <input id="att-range-start" type="datetime-local" /></label>

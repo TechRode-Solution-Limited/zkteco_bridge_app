@@ -335,46 +335,30 @@ public sealed class DeviceClient : IDisposable
         });
     }
 
-    public List<AttLog> ReadNewAttLogs()
+    /// <summary>
+    /// Returns logs whose timestamp is strictly greater than <paramref name="sinceTimestamp"/>
+    /// (yyyy-MM-dd HH:mm:ss). Pass null on first poll to return everything in the buffer.
+    /// Backed by ReadGeneralLogData + in-process filter — the SDK's ReadNewGLogData depends on a
+    /// per-connection read pointer that doesn't survive our connect-per-request model.
+    /// </summary>
+    public List<AttLog> ReadAttLogsSince(string? sinceTimestamp)
     {
-        return _sta.Invoke(() =>
-        {
-            Require();
-            var logs = new List<AttLog>();
-            if (!_czkem!.ReadNewGLogData(MachineNumber)) return logs;
-
-            string uid = "";
-            int verify = 0, inOut = 0, y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0, wc = 0;
-
-            while (_czkem.SSR_GetGeneralLogData(
-                       MachineNumber, out uid, out verify, out inOut,
-                       out y, out mo, out d, out h, out mi, out s, ref wc))
-            {
-                logs.Add(new AttLog(uid ?? "", SafeDate(y, mo, d, h, mi, s), verify, inOut, wc));
-            }
-            return logs;
-        });
+        var all = ReadAllAttLogs();
+        if (string.IsNullOrEmpty(sinceTimestamp)) return all;
+        return all.Where(l => string.CompareOrdinal(l.Timestamp, sinceTimestamp) > 0).ToList();
     }
 
+    /// <summary>
+    /// Returns logs with timestamp in [startDate, endDate] inclusive (yyyy-MM-dd HH:mm:ss).
+    /// Backed by ReadGeneralLogData + in-process filter — the SDK's ReadTimeGLogData is unreliable
+    /// across firmware (often returns true with zero rows regardless of dates).
+    /// </summary>
     public List<AttLog> ReadAttLogsByDateRange(string startDate, string endDate)
     {
-        return _sta.Invoke(() =>
-        {
-            Require();
-            var logs = new List<AttLog>();
-            if (!_czkem!.ReadTimeGLogData(MachineNumber, startDate, endDate)) return logs;
-
-            string uid = "";
-            int verify = 0, inOut = 0, y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0, wc = 0;
-
-            while (_czkem.SSR_GetGeneralLogData(
-                       MachineNumber, out uid, out verify, out inOut,
-                       out y, out mo, out d, out h, out mi, out s, ref wc))
-            {
-                logs.Add(new AttLog(uid ?? "", SafeDate(y, mo, d, h, mi, s), verify, inOut, wc));
-            }
-            return logs;
-        });
+        return ReadAllAttLogs()
+            .Where(l => string.CompareOrdinal(l.Timestamp, startDate) >= 0
+                     && string.CompareOrdinal(l.Timestamp, endDate) <= 0)
+            .ToList();
     }
 
     public List<AdminLog> ReadAdminLogs()

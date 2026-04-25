@@ -21,6 +21,8 @@ HTTP/JSON middleware between the GymSync Elixir reception app and ZKTeco biometr
 - Browser-based test UI for manual testing
 - Installs as a Windows service with auto-start on boot
 
+> **Face template caveat.** ZKTeco face templates are tied to the device's face-algorithm version (ZKFace 5.0, 7.0, Visible Light, etc.). Templates copy cleanly between devices on the same firmware/platform; cross-platform copies are rejected by the device with SDK error `-103` and the user must re-enroll on the target. Fingerprint templates don't have this constraint. See [`CLAUDE.md`](CLAUDE.md) § "Face templates" for the full contract.
+
 ## Quick start (development)
 
 ### Prerequisites

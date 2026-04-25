@@ -15,7 +15,7 @@ public static class ApiV1
         WriteIndented = false,
     };
 
-    public static void MapV1Routes(this WebApplication app, AppConfig cfg, SemaphoreSlim deviceLock)
+    public static void MapV1Routes(this WebApplication app, AppConfig cfg, SemaphoreSlim deviceLock, LastSeenStore watermarks)
     {
         var v1 = app.MapGroup("/api/v1");
 
@@ -620,8 +620,29 @@ public static class ApiV1
             var p = Dev(b, cfg);
             return await With(p, deviceLock, client =>
             {
-                var logs = client.ReadNewAttLogs();
-                return Ok(new { device = $"{p.Ip}:{p.Port}", count = logs.Count, logs });
+                var key = $"{p.Ip}:{p.Port}";
+                var since = watermarks.Get(key);
+                var logs = client.ReadAttLogsSince(since);
+                if (logs.Count > 0)
+                {
+                    var maxTs = logs.Max(l => l.Timestamp)!;
+                    if (since is null || string.CompareOrdinal(maxTs, since) > 0) watermarks.Set(key, maxTs);
+                }
+                return Ok(new { device = $"{p.Ip}:{p.Port}", count = logs.Count, since, logs });
+            });
+        });
+
+        v1.MapPost("/attendance/today", async (HttpRequest req) =>
+        {
+            var b = await Body(req);
+            var p = Dev(b, cfg);
+            var today = DateTime.Now.ToString("yyyy-MM-dd");
+            var start = $"{today} 00:00:00";
+            var end = $"{today} 23:59:59";
+            return await With(p, deviceLock, client =>
+            {
+                var logs = client.ReadAttLogsByDateRange(start, end);
+                return Ok(new { device = $"{p.Ip}:{p.Port}", date = today, count = logs.Count, logs });
             });
         });
 

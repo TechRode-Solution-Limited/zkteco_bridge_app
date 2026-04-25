@@ -288,6 +288,13 @@ const actions = {
     renderAttLogs("out-att-new", body);
   },
 
+  async "att-today"(btn) {
+    show("out-att-today", true, "Fetching today's logs...");
+    const { ok, body } = await callJson("/api/attendance/today", deviceOverrides());
+    if (!ok) return show("out-att-today", false, body.error || body);
+    renderAttLogs("out-att-today", body);
+  },
+
   async "att-range"(btn) {
     const startDate = fmtDt($("att-range-start").value);
     const endDate = fmtDt($("att-range-end").value);

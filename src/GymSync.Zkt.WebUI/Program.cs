@@ -44,6 +44,9 @@ var deviceLock = new SemaphoreSlim(1, 1);
 // Persistent watermark for /attendance/new — see LastSeenStore docs.
 var watermarks = new LastSeenStore(Path.Combine(root, "storage", "last_seen.json"));
 
+// Template cache — used by /users/enable to restore templates when re-enabling a user.
+var templateStore = new TemplateStore(cfg.Storage.Path);
+
 var jsonOpts = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -51,7 +54,7 @@ var jsonOpts = new JsonSerializerOptions
 };
 
 // ==================== V1 API (for Elixir app) ====================
-app.MapV1Routes(cfg, deviceLock, watermarks);
+app.MapV1Routes(cfg, deviceLock, watermarks, templateStore);
 
 // ==================== Test UI API ====================
 // ------------- /api/config -----------------

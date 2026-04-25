@@ -15,7 +15,7 @@ public static class ApiV1
         WriteIndented = false,
     };
 
-    public static void MapV1Routes(this WebApplication app, AppConfig cfg, SemaphoreSlim deviceLock, LastSeenStore watermarks)
+    public static void MapV1Routes(this WebApplication app, AppConfig cfg, SemaphoreSlim deviceLock, LastSeenStore watermarks, TemplateStore templateStore)
     {
         var v1 = app.MapGroup("/api/v1");
 
@@ -210,8 +210,111 @@ public static class ApiV1
             {
                 var existing = client.GetUser(enroll);
                 if (existing is null) return Err($"User {enroll} not found", 404);
+
+                // Layer 1: set the enabled flag (ignored on some firmware, best-effort)
                 client.CreateUser(enroll, existing.Name, existing.Privilege, "", enable);
-                return Ok(new { enrollNumber = enroll, enabled = enable });
+
+                // Layer 2: set/clear an expired validity window (best-effort, -100 on some firmware)
+                try
+                {
+                    if (enable)
+                        client.SetUserValidDate(enroll, false, "", "");
+                    else
+                        client.SetUserValidDate(enroll, true, "2000-01-01", "2000-01-01");
+                }
+                catch { /* not supported on all firmware */ }
+
+                // Layer 3 (definitive): delete templates from device on disable, restore on enable.
+                // This is the only approach guaranteed to block biometric auth on all firmware.
+                int deletedFingers = 0, restoredFingers = 0;
+                int deletedFaces = 0, restoredFaces = 0;
+                var templateWarnings = new List<string>();
+
+                if (!enable)
+                {
+                    // Pull all templates from the device and cache them before deleting
+                    var templates = client.GetAllTemplates(enroll);
+
+                    foreach (var f in templates.Fingerprints)
+                    {
+                        try
+                        {
+                            var raw = Convert.FromBase64String(f.Template);
+                            templateStore.WriteFingerprint(p.Ip, enroll, f.Index, raw);
+                            client.DeleteFingerTemplate(enroll, f.Index);
+                            deletedFingers++;
+                        }
+                        catch (Exception ex) { templateWarnings.Add($"finger[{f.Index}]: {ex.Message}"); }
+                    }
+
+                    foreach (var f in templates.Faces)
+                    {
+                        try
+                        {
+                            var raw = Convert.FromBase64String(f.Template);
+                            templateStore.WriteFace(p.Ip, enroll, f.Index, raw);
+                            // Persist the SDK byte-length as a sidecar so restore can round-trip it correctly.
+                            var bytesPath = Path.Combine(templateStore.Root, p.Ip, enroll, $"face_{f.Index}.bytes");
+                            File.WriteAllText(bytesPath, f.Bytes.ToString());
+                            client.DeleteFaceTemplate(enroll, f.Index);
+                            deletedFaces++;
+                        }
+                        catch (Exception ex) { templateWarnings.Add($"face[{f.Index}]: {ex.Message}"); }
+                    }
+                }
+                else
+                {
+                    // Restore cached templates back onto the device
+                    var storeDir = Path.Combine(templateStore.Root, p.Ip, enroll);
+                    if (Directory.Exists(storeDir))
+                    {
+                        foreach (var file in Directory.EnumerateFiles(storeDir, "finger_*.bin"))
+                        {
+                            try
+                            {
+                                var idStr = Path.GetFileNameWithoutExtension(file).Replace("finger_", "");
+                                if (!int.TryParse(idStr, out var idx)) continue;
+                                var raw = File.ReadAllBytes(file);
+                                client.SetFingerTemplate(enroll, idx, raw);
+                                restoredFingers++;
+                            }
+                            catch (Exception ex) { templateWarnings.Add($"{Path.GetFileName(file)}: {ex.Message}"); }
+                        }
+
+                        foreach (var file in Directory.EnumerateFiles(storeDir, "face_*.bin"))
+                        {
+                            try
+                            {
+                                var idStr = Path.GetFileNameWithoutExtension(file).Replace("face_", "");
+                                if (!int.TryParse(idStr, out var idx)) continue;
+                                var raw = File.ReadAllBytes(file);
+                                // Use the persisted SDK byte-length if available, otherwise fall back to raw.Length.
+                                var bytesPath = Path.ChangeExtension(file, ".bytes");
+                                var sdkBytes = File.Exists(bytesPath) && int.TryParse(File.ReadAllText(bytesPath).Trim(), out var saved)
+                                    ? saved
+                                    : raw.Length;
+                                client.SetFaceTemplate(enroll, raw, sdkBytes, idx);
+                                restoredFaces++;
+                            }
+                            catch (Exception ex) { templateWarnings.Add($"{Path.GetFileName(file)}: {ex.Message}"); }
+                        }
+                    }
+                    else
+                    {
+                        templateWarnings.Add("No cached templates found in store — user may need to re-enroll");
+                    }
+                }
+
+                return Ok(new
+                {
+                    enrollNumber = enroll,
+                    enabled = enable,
+                    deletedFingers,
+                    deletedFaces,
+                    restoredFingers,
+                    restoredFaces,
+                    warnings = templateWarnings
+                });
             });
         });
 
@@ -423,6 +526,57 @@ public static class ApiV1
             {
                 client.DeleteFaceTemplate(enroll, Int(b, "faceIndex") ?? 50);
                 return Ok(new { enrollNumber = enroll, faceIndex = Int(b, "faceIndex") ?? 50, action = "deleted" });
+            });
+        });
+
+        // Test endpoint: reads a face template that was previously cached to the TemplateStore by
+        // /users/enable (disable path) and attempts to re-upload it to the device.
+        // Use this to verify round-trip fidelity before relying on the enable/restore code path.
+        //
+        // Request: { ip, port?, enrollNumber, faceIndex? (default 50) }
+        // Response: { enrollNumber, faceIndex, cacheFile, sdkBytes, action }
+        //
+        // Workflow:
+        //   1. POST /api/v1/users/enable  { enrollNumber, enable: false }  — caches + deletes templates
+        //   2. Test auth on device — should be blocked
+        //   3. POST /api/v1/templates/face/test-restore  { enrollNumber }  — try the re-upload
+        //   4. Test auth on device — should work again if round-trip is clean
+        //   5. If step 4 fails, the face algorithm on this device doesn't support restore; re-enroll is required
+        v1.MapPost("/templates/face/test-restore", async (HttpRequest req) =>
+        {
+            var b = await Body(req);
+            var p = Dev(b, cfg);
+            var enroll = Str(b, "enrollNumber");
+            if (enroll is null) return Err("enrollNumber required", 400);
+            var faceIndex = Int(b, "faceIndex") ?? 50;
+
+            var cacheFile = Path.Combine(templateStore.Root, p.Ip, enroll, $"face_{faceIndex}.bin");
+            if (!File.Exists(cacheFile))
+                return Err($"No cached face template found at {cacheFile}. " +
+                           $"Disable the user first via POST /users/enable with enable=false.", 404);
+
+            byte[] raw;
+            try { raw = File.ReadAllBytes(cacheFile); }
+            catch (Exception ex) { return Err($"Failed to read cache file: {ex.Message}", 500); }
+
+            // Restore the persisted SDK byte-length (face_N.bytes sidecar) if available.
+            var bytesFile = Path.ChangeExtension(cacheFile, ".bytes");
+            int sdkBytes = raw.Length; // fallback
+            if (File.Exists(bytesFile) && int.TryParse(File.ReadAllText(bytesFile).Trim(), out var saved))
+                sdkBytes = saved;
+
+            return await With(p, deviceLock, client =>
+            {
+                client.SetFaceTemplate(enroll, raw, sdkBytes, faceIndex);
+                return Ok(new
+                {
+                    enrollNumber = enroll,
+                    faceIndex,
+                    cacheFile,
+                    sdkBytes,
+                    rawBytes = raw.Length,
+                    action = "restored"
+                });
             });
         });
 

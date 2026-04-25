@@ -195,6 +195,20 @@ button:disabled { opacity: 0.4; cursor: wait; }
   color: #fff;
 }
 
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
 .output {
   margin-top: 12px;
   background: #000;

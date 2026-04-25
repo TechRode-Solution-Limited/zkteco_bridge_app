@@ -182,17 +182,63 @@ const actions = {
   async "enable-user"(btn) {
     const enroll = $("toggle-enroll").value.trim();
     if (!enroll) return show("out-toggle-user", false, "Enter enroll number");
-    show("out-toggle-user", true, "Enabling...");
-    const { ok, body } = await callJson("/api/user/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: true });
-    show("out-toggle-user", ok, ok ? body.message : (body.error || body));
+    show("out-toggle-user", true, "Enabling (restoring templates)...");
+    const { ok, body } = await callJson("/api/v1/users/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: true });
+    show("out-toggle-user", ok, ok ? body.data || body : (body.error || body));
   },
 
   async "disable-user"(btn) {
     const enroll = $("toggle-enroll").value.trim();
     if (!enroll) return show("out-toggle-user", false, "Enter enroll number");
-    show("out-toggle-user", true, "Disabling...");
-    const { ok, body } = await callJson("/api/user/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: false });
-    show("out-toggle-user", ok, ok ? body.message : (body.error || body));
+    show("out-toggle-user", true, "Disabling (caching & deleting templates)...");
+    const { ok, body } = await callJson("/api/v1/users/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: false });
+    show("out-toggle-user", ok, ok ? body.data || body : (body.error || body));
+  },
+
+  // Face disable/restore round-trip test
+  async "restore-test-disable"(btn) {
+    const enroll = $("restore-test-enroll").value.trim();
+    if (!enroll) return show("out-restore-test-disable", false, "Enter enroll number");
+    show("out-restore-test-disable", true, "Disabling — caching templates then deleting from device...");
+    const { ok, body } = await callJson("/api/v1/users/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: false });
+    if (!ok) return show("out-restore-test-disable", false, body.error || body);
+    const d = body.data || body;
+    const warnings = d.warnings?.length ? `\n⚠ Warnings: ${d.warnings.join("; ")}` : "";
+    show(
+      "out-restore-test-disable",
+      ok,
+      `✓ Done — deleted ${d.deletedFingers ?? 0} fingerprint(s), ${d.deletedFaces ?? 0} face(s) from device. Templates cached on disk.${warnings}\n\nNow physically test the device — the person should NOT be able to authenticate.`
+    );
+  },
+
+  async "restore-test-face"(btn) {
+    const enroll = $("restore-test-enroll").value.trim();
+    const faceIndex = parseInt($("restore-test-face-index").value, 10) || 50;
+    if (!enroll) return show("out-restore-test-face", false, "Enter enroll number");
+    show("out-restore-test-face", true, "Attempting to re-upload face template from cache...");
+    const { ok, body } = await callJson("/api/v1/templates/face/test-restore", { ...deviceOverrides(), enrollNumber: enroll, faceIndex });
+    if (!ok) return show("out-restore-test-face", false, body.error || body);
+    const d = body.data || body;
+    show(
+      "out-restore-test-face",
+      ok,
+      `✓ Face template re-uploaded to device.\n  Cache file: ${d.cacheFile}\n  SDK bytes (original): ${d.sdkBytes}\n  Raw file size: ${d.rawBytes}\n\nNow physically test the device — the person SHOULD be able to authenticate via face if round-trip works.`
+    );
+  },
+
+  async "restore-test-enable"(btn) {
+    const enroll = $("restore-test-enroll").value.trim();
+    if (!enroll) return show("out-restore-test-enable", false, "Enter enroll number");
+    show("out-restore-test-enable", true, "Re-enabling — restoring all cached templates...");
+    const { ok, body } = await callJson("/api/v1/users/enable", { ...deviceOverrides(), enrollNumber: enroll, enable: true });
+    if (!ok) return show("out-restore-test-enable", false, body.error || body);
+    const d = body.data || body;
+    const warnings = d.warnings?.length ? `\n⚠ Warnings: ${d.warnings.join("; ")}` : "";
+    show(
+      "out-restore-test-enable",
+      ok,
+      `✓ Done — restored ${d.restoredFingers ?? 0} fingerprint(s), ${d.restoredFaces ?? 0} face(s) to device.${warnings}`
+    );
   },
 
   async "delete-user"(btn) {

@@ -102,6 +102,7 @@
 
       <section class="card">
         <h2>Enable / Disable user</h2>
+        <p class="muted">Uses the V1 endpoint — disabling caches all biometric templates then deletes them from the device. Enabling restores them from cache.</p>
         <div class="inline">
           <label>Enroll # <input id="toggle-enroll" placeholder="e.g. 1001" /></label>
           <button data-action="enable-user">Enable</button>
@@ -237,6 +238,39 @@
           <button data-action="upload-face-tpl">Upload</button>
         </div>
         <div class="output" id="out-upload-face-tpl"></div>
+      </section>
+
+      <section class="card" style="border:2px solid var(--accent,#3b82f6)">
+        <h2>&#x1F9EA; Face disable / restore round-trip test</h2>
+        <p class="muted">Tests whether a cached face template can be cleanly re-uploaded after deletion. Run steps in order — physically test auth on the device between steps.</p>
+
+        <div class="inline" style="margin-bottom:12px">
+          <label>Enroll # <input id="restore-test-enroll" placeholder="e.g. 1001" /></label>
+          <label>Face index <input id="restore-test-face-index" type="number" value="50" /></label>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="step-badge">1</span>
+            <button data-action="restore-test-disable" class="btn-danger" style="min-width:260px">Disable — cache &amp; delete templates from device</button>
+            <span class="muted">Then verify the person <strong>cannot</strong> authenticate on the device</span>
+          </div>
+          <div class="output" id="out-restore-test-disable"></div>
+
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="step-badge">2</span>
+            <button data-action="restore-test-face" style="min-width:260px">Test face restore (face slot only)</button>
+            <span class="muted">Then verify the person <strong>can</strong> authenticate — if not, round-trip is broken on this firmware</span>
+          </div>
+          <div class="output" id="out-restore-test-face"></div>
+
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="step-badge">3</span>
+            <button data-action="restore-test-enable" style="min-width:260px">Re-enable — restore all templates</button>
+            <span class="muted">Full re-enable including fingerprints</span>
+          </div>
+          <div class="output" id="out-restore-test-enable"></div>
+        </div>
       </section>
     </div>
 

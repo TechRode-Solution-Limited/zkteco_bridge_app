@@ -983,7 +983,7 @@ public static class ApiV1
                 foreach (var p in doc.RootElement.EnumerateObject()) map[p.Name] = p.Value.Clone();
             return map;
         }
-        catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException) { return new(); }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException) { return new(); }
         catch (System.Text.Json.JsonException) { return new(); }
         catch (System.IO.IOException) { return new(); }
     }

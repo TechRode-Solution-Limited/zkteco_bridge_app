@@ -2,6 +2,23 @@ const $ = (id) => document.getElementById(id);
 
 // ---- Config / connection ----
 
+function setConnected(connected, message) {
+  const status = $("conn-status");
+  status.className = "status-dot " + (connected ? "online" : "offline");
+  status.textContent = connected ? "connected" : "disconnected";
+  $("btn-connect").hidden = connected;
+  $("btn-disconnect").hidden = !connected;
+  if (message !== undefined) $("conn-msg").textContent = message;
+  if (connected) $("device-addr").textContent = `${$("cfg-ip").value}:${$("cfg-port").value}`;
+}
+
+async function probeStatus() {
+  $("conn-msg").textContent = "Checking device...";
+  const { ok, body } = await callJson("/api/v1/status", { ip: $("cfg-ip").value, port: parseInt($("cfg-port").value, 10) });
+  if (ok && body.data?.online) setConnected(true, `Online — ${body.data.product || body.data.serial || "device"}`);
+  else setConnected(false, ok ? "Device offline" : (body.error || "Status check failed"));
+}
+
 async function loadConfig() {
   const r = await fetch("/api/config");
   const j = await r.json();
@@ -68,17 +85,14 @@ const actions = {
   async connect(btn) {
     $("conn-msg").textContent = "Connecting...";
     const { ok, body } = await callJson("/api/connect", deviceOverrides());
-    const status = $("conn-status");
-    if (ok) {
-      status.className = "status-dot online";
-      status.textContent = "connected";
-      $("conn-msg").textContent = body.message;
-      $("device-addr").textContent = `${$("cfg-ip").value}:${$("cfg-port").value}`;
-    } else {
-      status.className = "status-dot offline";
-      status.textContent = "disconnected";
-      $("conn-msg").textContent = body.error || "Connection failed";
-    }
+    if (ok) setConnected(true, body.message);
+    else setConnected(false, body.error || "Connection failed");
+  },
+
+  // The Bridge connects per-request, so there's no persistent server session
+  // to terminate — Disconnect just resets the UI state.
+  async disconnect(btn) {
+    setConnected(false, "Disconnected");
   },
 
   // Users
@@ -445,4 +459,4 @@ function renderAttLogs(elId, body) {
   </table><p style="margin:8px 0 0;color:var(--muted)">Total: ${body.count} records</p>`);
 }
 
-loadConfig();
+loadConfig().then(probeStatus);

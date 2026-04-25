@@ -821,11 +821,17 @@ public static class ApiV1
     private static async Task<Dictionary<string, JsonElement>> Body(HttpRequest req)
     {
         if (req.ContentLength is 0 or null) return new();
-        using var doc = await JsonDocument.ParseAsync(req.Body);
-        var map = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
-        if (doc.RootElement.ValueKind == JsonValueKind.Object)
-            foreach (var p in doc.RootElement.EnumerateObject()) map[p.Name] = p.Value.Clone();
-        return map;
+        try
+        {
+            using var doc = await JsonDocument.ParseAsync(req.Body);
+            var map = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                foreach (var p in doc.RootElement.EnumerateObject()) map[p.Name] = p.Value.Clone();
+            return map;
+        }
+        catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException) { return new(); }
+        catch (System.Text.Json.JsonException) { return new(); }
+        catch (System.IO.IOException) { return new(); }
     }
 
     private static string? Str(Dictionary<string, JsonElement> m, string key) =>

@@ -648,12 +648,18 @@ app.Run();
 static async Task<Dictionary<string, JsonElement>> ReadBodyAsync(HttpRequest req)
 {
     if (req.ContentLength is 0 or null) return new();
-    using var doc = await JsonDocument.ParseAsync(req.Body);
-    var root = doc.RootElement;
-    var map = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
-    if (root.ValueKind == JsonValueKind.Object)
-        foreach (var prop in root.EnumerateObject()) map[prop.Name] = prop.Value.Clone();
-    return map;
+    try
+    {
+        using var doc = await JsonDocument.ParseAsync(req.Body);
+        var root = doc.RootElement;
+        var map = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        if (root.ValueKind == JsonValueKind.Object)
+            foreach (var prop in root.EnumerateObject()) map[prop.Name] = prop.Value.Clone();
+        return map;
+    }
+    catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException) { return new(); }
+    catch (System.Text.Json.JsonException) { return new(); }
+    catch (System.IO.IOException) { return new(); }
 }
 
 static string? GetStr(Dictionary<string, JsonElement> m, string key) =>

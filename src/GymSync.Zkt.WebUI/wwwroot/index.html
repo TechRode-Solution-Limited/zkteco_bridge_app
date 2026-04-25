@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>ZKTeco Test UI <span class="badge">C# / zkemkeeper</span></h1>
-    <p class="muted">Device: <code id="device-addr">-</code> | Status: <span id="conn-status" class="status-dot offline">disconnected</span></p>
+    <p class="muted">Device: <code id="device-addr">-</code> | Status: <span id="conn-status" class="status-dot offline">disconnected</span> <span id="conn-msg" class="muted"></span></p>
   </header>
 
   <!-- Connection bar -->
@@ -22,8 +22,7 @@
       <label>Machine # <input id="cfg-machine" type="number" /></label>
     </div>
     <button id="btn-connect" data-action="connect">Connect</button>
-    <button id="btn-disconnect" data-action="disconnect" hidden>Disconnect</button>
-    <span id="conn-msg" class="muted"></span>
+    <button id="btn-disconnect" class="btn-danger" data-action="disconnect" hidden>Disconnect</button>
   </section>
 
   <!-- Tab navigation -->
